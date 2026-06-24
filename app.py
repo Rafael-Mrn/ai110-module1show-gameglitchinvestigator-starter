@@ -1,6 +1,8 @@
 import random
 import streamlit as st
 
+from logic_utils import new_game, check_guess, update_score
+
 def get_range_for_difficulty(difficulty: str):
     if difficulty == "Easy":
         return 1, 20
@@ -28,41 +30,6 @@ def parse_guess(raw: str):
 
     return True, value, None
 
-
-def check_guess(guess, secret):
-    if guess == secret:
-        return "Win", "🎉 Correct!"
-
-    try:
-        if guess > secret:
-            return "Too High", "📈 Go HIGHER!"
-        else:
-            return "Too Low", "📉 Go LOWER!"
-    except TypeError:
-        g = str(guess)
-        if g == secret:
-            return "Win", "🎉 Correct!"
-        if g > secret:
-            return "Too High", "📈 Go HIGHER!"
-        return "Too Low", "📉 Go LOWER!"
-
-
-def update_score(current_score: int, outcome: str, attempt_number: int):
-    if outcome == "Win":
-        points = 100 - 10 * (attempt_number + 1)
-        if points < 10:
-            points = 10
-        return current_score + points
-
-    if outcome == "Too High":
-        if attempt_number % 2 == 0:
-            return current_score + 5
-        return current_score - 5
-
-    if outcome == "Too Low":
-        return current_score - 5
-
-    return current_score
 
 st.set_page_config(page_title="Glitchy Guesser", page_icon="🎮")
 
@@ -93,7 +60,8 @@ if "secret" not in st.session_state:
     st.session_state.secret = random.randint(low, high)
 
 if "attempts" not in st.session_state:
-    st.session_state.attempts = 1
+    # FIX: start at 0 so "attempts left" and attempt numbers are correct before any guess.
+    st.session_state.attempts = 0
 
 if "score" not in st.session_state:
     st.session_state.score = 0
@@ -127,17 +95,19 @@ col1, col2, col3 = st.columns(3)
 with col1:
     submit = st.button("Submit Guess 🚀")
 with col2:
-    new_game = st.button("New Game 🔁")
+    new_game_clicked = st.button("New Game 🔁")
 with col3:
     show_hint = st.checkbox("Show hint", value=True)
 
-if new_game:
-    st.session_state.attempts = 0
-    st.session_state.secret = random.randint(1, 100)
+if new_game_clicked:
+    # FIX: Apply every reset in one shot from logic_utils.new_game so nothing
+    # (status, history, ...) can be forgotten. Picks the secret within the
+    # current difficulty range, not a hardcoded 1-100.
+    st.session_state.update(new_game(low, high))
     st.success("New game started.")
     st.rerun()
 
-if st.session_state.status != "playing":
+if st.session_state.status != "playing": 
     if st.session_state.status == "won":
         st.success("You already won. Start a new game to play again.")
     else:
@@ -145,20 +115,18 @@ if st.session_state.status != "playing":
     st.stop()
 
 if submit:
-    st.session_state.attempts += 1
-
     ok, guess_int, err = parse_guess(raw_guess)
 
     if not ok:
         st.session_state.history.append(raw_guess)
         st.error(err)
     else:
+        # FIX: count this guess once, before scoring, so attempt_number is 1 on the first guess.
+        st.session_state.attempts += 1
         st.session_state.history.append(guess_int)
 
-        if st.session_state.attempts % 2 == 0:
-            secret = str(st.session_state.secret)
-        else:
-            secret = st.session_state.secret
+        # FIX: always compare against the integer secret (removed the int-vs-str glitch).
+        secret = st.session_state.secret
 
         outcome, message = check_guess(guess_int, secret)
 
